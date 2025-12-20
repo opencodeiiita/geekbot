@@ -5,9 +5,9 @@ const mongoose = require('mongoose');
 const express = require('express');
 const crypto = require('crypto');
 const { Client, Collection, GatewayIntentBits } = require('discord.js');
-const { DISCORD_TOKEN, MONGODB_URI, GITHUB_WEBHOOK_SECRET } = process.env;
+const { DISCORD_TOKEN, MONGODB_URI, WEBHOOK_SECRET } = process.env;
 
-console.log('GITHUB_WEBHOOK_SECRET loaded:', !!GITHUB_WEBHOOK_SECRET, GITHUB_WEBHOOK_SECRET ? 'Present' : 'Missing');
+console.log('WEBHOOK_SECRET loaded:', !!WEBHOOK_SECRET, WEBHOOK_SECRET ? 'Present' : 'Missing');
 const RepoLink = require('./models/repoLink');
 
 // Connect to MongoDB
@@ -20,7 +20,7 @@ const app = express();
 app.use(express.json());
 
 // Webhook endpoint
-app.post('/discord_backend/discord_bot', async (req, res) => {
+app.post('/api/v1/discord-bot', async (req, res) => {
   console.log('🔗 Webhook received!');
   const payload = req.body;
   const signature = req.headers['x-hub-signature-256'];
@@ -29,13 +29,20 @@ app.post('/discord_backend/discord_bot', async (req, res) => {
   console.log(`Event: ${event}, Action: ${payload.action}, Repo: ${payload.repository?.full_name}`);
 
   // Verify signature
-  const hmac = crypto.createHmac('sha256', GITHUB_WEBHOOK_SECRET);
-  hmac.update(JSON.stringify(payload));
-  const expectedSignature = 'sha256=' + hmac.digest('hex');
-
-  if (signature !== expectedSignature) {
-    console.log('❌ Invalid webhook signature');
-    return res.status(401).send('Unauthorized');
+  const computedSignature = crypto
+      .createHmac('sha256', WEBHOOK_SECRET)
+      .update(JSON.stringify(payload))
+      .digest('hex');
+  const expected = Buffer.from(`sha256=${computedSignature}`, 'ascii');
+  const actual = Buffer.from(signature, 'ascii');
+  try {
+      if (!crypto.timingSafeEqual(expected, actual)) {
+          console.log('❌ Invalid webhook signature');
+          return res.status(401).send('Unauthorized');
+      }
+  } catch (error) {
+      console.log('❌ Signature verification error');
+      return res.status(400).send('Bad Request');
   }
 
   // Use the router function logic adapted for Discord bot
