@@ -43,7 +43,7 @@ module.exports = {
           owner,
           repo,
           config: {
-            url: 'https://events.geekhaven.in/back/api/v1/github-bot',
+            url: 'https://events.geekhaven.in/discord_backend/discord_bot',
             secret: process.env.GITHUB_WEBHOOK_SECRET,
             content_type: 'json'
           },

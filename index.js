@@ -20,7 +20,7 @@ const app = express();
 app.use(express.json());
 
 // Webhook endpoint
-app.post('/back/api/v1/github-bot', async (req, res) => {
+app.post('/discord_backend/discord_bot', async (req, res) => {
   console.log('🔗 Webhook received!');
   const payload = req.body;
   const signature = req.headers['x-hub-signature-256'];
@@ -38,51 +38,120 @@ app.post('/back/api/v1/github-bot', async (req, res) => {
     return res.status(401).send('Unauthorized');
   }
 
-  if ((event === 'issues' || event === 'pull_request') && payload.action === 'opened') {
-    const repoName = payload.repository.full_name;
-    console.log(`Processing opened ${event} for repo: ${repoName}`);
-    const item = payload[event === 'issues' ? 'issue' : 'pull_request'];
-
-    const link = await RepoLink.findOne({ repoName });
-
-    if (link) {
-      console.log(`✅ Found link for repo ${repoName}, posting to channel ${link.channelId}`);
-      const guild = client.guilds.cache.get(link.guildId);
-      if (guild) {
-        const channel = guild.channels.cache.get(link.channelId);
-        if (channel) {
-          const embed = {
-            title: `${event === 'issues' ? 'Issue' : 'Pull Request'} #${item.number}`,
-            url: item.html_url,
-            description: item.title,
-            fields: [
-              { name: 'State', value: item.state, inline: true },
-              { name: 'Created by', value: item.user.login, inline: true },
-            ],
-            timestamp: item.created_at,
-          };
-          await channel.send({ embeds: [embed] });
-          console.log(`📤 Posted embed for ${item.number} in ${channel.name}`);
-        } else {
-          console.log('❌ Channel not found');
-        }
-      } else {
-        console.log('❌ Guild not found');
+  // Use the router function logic adapted for Discord bot
+  switch (event) {
+    case 'issues':
+      switch (payload.action) {
+        case 'opened':
+          await handleIssueOpened(payload, res);
+          break;
+        case 'closed':
+          console.log(`Issue #${payload.issue.number} closed in ${payload.repository.full_name}`);
+          break;
+        case 'reopened':
+          console.log(`Issue #${payload.issue.number} reopened in ${payload.repository.full_name}`);
+          break;
+        // Add more cases as needed
+        default:
+          return res.status(200).json();
       }
-    } else {
-      console.log(`❌ No link found for repo ${repoName}`);
-    }
-  } else {
-    console.log(`ℹ️ Ignoring event: ${event} with action: ${payload.action}`);
+      break;
+    case 'pull_request':
+      switch (payload.action) {
+        case 'opened':
+          await handlePullRequestOpened(payload, res);
+          break;
+        case 'closed':
+          if (payload.pull_request.merged) {
+            console.log(`PR #${payload.pull_request.number} merged in ${payload.repository.full_name}`);
+          } else {
+            console.log(`PR #${payload.pull_request.number} closed in ${payload.repository.full_name}`);
+          }
+          break;
+        case 'reopened':
+          console.log(`PR #${payload.pull_request.number} reopened in ${payload.repository.full_name}`);
+          break;
+        // Add more cases as needed
+        default:
+          return res.status(200).json();
+      }
+      break;
+    default:
+      return res.status(200).json();
   }
 
   res.status(200).send('OK');
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Webhook server listening on port ${PORT}`);
-});
+async function handleIssueOpened(payload, res) {
+  const repoName = payload.repository.full_name;
+  const item = payload.issue;
+
+  const link = await RepoLink.findOne({ repoName });
+
+  if (link) {
+    console.log(`✅ Found link for repo ${repoName}, posting to channel ${link.channelId}`);
+    const guild = client.guilds.cache.get(link.guildId);
+    if (guild) {
+      const channel = guild.channels.cache.get(link.channelId);
+      if (channel) {
+        const embed = {
+          title: `Issue #${item.number}`,
+          url: item.html_url,
+          description: item.title,
+          fields: [
+            { name: 'State', value: item.state, inline: true },
+            { name: 'Created by', value: item.user.login, inline: true },
+          ],
+          timestamp: item.created_at,
+        };
+        await channel.send({ embeds: [embed] });
+        console.log(`📤 Posted embed for issue ${item.number} in ${channel.name}`);
+      } else {
+        console.log('❌ Channel not found');
+      }
+    } else {
+      console.log('❌ Guild not found');
+    }
+  } else {
+    console.log(`❌ No link found for repo ${repoName}`);
+  }
+}
+
+async function handlePullRequestOpened(payload, res) {
+  const repoName = payload.repository.full_name;
+  const item = payload.pull_request;
+
+  const link = await RepoLink.findOne({ repoName });
+
+  if (link) {
+    console.log(`✅ Found link for repo ${repoName}, posting to channel ${link.channelId}`);
+    const guild = client.guilds.cache.get(link.guildId);
+    if (guild) {
+      const channel = guild.channels.cache.get(link.channelId);
+      if (channel) {
+        const embed = {
+          title: `Pull Request #${item.number}`,
+          url: item.html_url,
+          description: item.title,
+          fields: [
+            { name: 'State', value: item.state, inline: true },
+            { name: 'Created by', value: item.user.login, inline: true },
+          ],
+          timestamp: item.created_at,
+        };
+        await channel.send({ embeds: [embed] });
+        console.log(`📤 Posted embed for PR ${item.number} in ${channel.name}`);
+      } else {
+        console.log('❌ Channel not found');
+      }
+    } else {
+      console.log('❌ Guild not found');
+    }
+  } else {
+    console.log(`❌ No link found for repo ${repoName}`);
+  }
+}
 
 // Create a new client instance
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
@@ -127,3 +196,9 @@ for (const file of eventFiles) {
 
 // Log in to Discord with your client's DISCORD_TOKEN
 client.login(DISCORD_TOKEN);
+
+// Start the Express server for webhooks
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`Webhook server listening on port ${PORT}`);
+});
