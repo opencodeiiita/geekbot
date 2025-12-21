@@ -11,8 +11,8 @@ module.exports = {
 
     if (message.content.startsWith('!register')) {
       const args = message.content.split(' ').slice(1);
-      if (args.length !== 2) {
-        return message.reply('Usage: !register [repo-name] [channel-name]');
+      if (args.length < 2) {
+        return message.reply('Usage: !register [owner/repo] [channel-name] [role1] [role2] ...');
       }
 
       // Accept "owner/repo" format only
@@ -35,15 +35,35 @@ module.exports = {
         return message.reply('I do not have permission to send messages in that channel.');
       }
 
+      // Parse roles (optional)
+      const mentionRoles = [];
+      for (let i = 2; i < args.length; i++) {
+        const roleArg = args[i];
+        // If it's a mention <@&id>, extract id
+        const match = roleArg.match(/^<@&(\d+)>$/);
+        if (match) {
+          mentionRoles.push(match[1]);
+        } else {
+          // Try to find role by name
+          const role = message.guild.roles.cache.find(r => r.name.toLowerCase() === roleArg.toLowerCase());
+          if (role) {
+            mentionRoles.push(role.id);
+          } else {
+            return message.reply(`Role "${roleArg}" not found.`);
+          }
+        }
+      }
+
       // Save to database
       try {
         await RepoLink.findOneAndUpdate(
           { guildId: message.guild.id, repoKey, channelId: channel.id },
-          { repoName, repoKey, channelId: channel.id, lastChecked: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          { repoName, repoKey, channelId: channel.id, mentionRoles, lastChecked: new Date(Date.now() - 24 * 60 * 60 * 1000) },
           { upsert: true, new: true }
         );
 
-        message.reply(`Registered ${repoName} to track updates in ${channel}.`);
+        const roleMentions = mentionRoles.length > 0 ? ` with roles: ${mentionRoles.map(id => `<@&${id}>`).join(', ')}` : '';
+        message.reply(`Registered ${repoName} to track updates in ${channel}${roleMentions}.`);
       } catch (error) {
         console.error(error);
         message.reply('Error registering repo.');

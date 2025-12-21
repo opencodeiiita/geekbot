@@ -9,6 +9,7 @@ const { DISCORD_TOKEN, MONGODB_URI, WEBHOOK_SECRET } = process.env;
 
 console.log('WEBHOOK_SECRET loaded:', !!WEBHOOK_SECRET, WEBHOOK_SECRET ? 'Present' : 'Missing');
 const RepoLink = require('./models/repoLink');
+const { getIssueMessages } = require('./utils/issueMessages');
 
 // Connect to MongoDB
 mongoose.connect(MONGODB_URI)
@@ -121,7 +122,7 @@ async function webhookHandler(req, res) {
 app.post('/api/v1/discord-bot', webhookHandler);
 app.post('/back/api/v1/discord-bot', webhookHandler);
 
-async function handleIssueOpened(payload, res) {
+async function handleIssueOpened(payload) {
   const repoName = payload.repository.full_name;
   const repoKey = String(repoName).toLowerCase();
   const item = payload.issue;
@@ -162,13 +163,17 @@ async function handleIssueOpened(payload, res) {
   }
 
   // Determine embed color based on points (higher points = more important color)
-  let color = 0x00ff00; // Default green
+  // Default green
+  let color = 0x00ff00;
+  // Red for very high points
   if (pointsValue >= 31) {
-    color = 0xff0000; // Red for very high points
+    color = 0xff0000;
+  // Orange for high points
   } else if (pointsValue >= 21) {
-    color = 0xffa500; // Orange for high points
+    color = 0xffa500;
+  // Yellow for medium points
   } else if (pointsValue >= 11) {
-    color = 0xffff00; // Yellow for medium points
+    color = 0xffff00;
   }
 
   // Truncate description if too long
@@ -191,6 +196,9 @@ async function handleIssueOpened(payload, res) {
       { name: 'Type', value: type, inline: true },
       { name: 'State', value: item.state, inline: true },
     ],
+    image: {
+      url: `https://opengraph.githubassets.com/1/${payload.repository.full_name}/issues/${item.number}`,
+    },
     footer: {
       text: 'Created',
     },
@@ -209,12 +217,27 @@ async function handleIssueOpened(payload, res) {
       console.log('❌ Channel not found');
       continue;
     }
+
+    // Pick a random announcement message based on issue characteristics
+    const availableMessages = getIssueMessages(labels, pointsValue);
+    const randomMsg = availableMessages[Math.floor(Math.random() * availableMessages.length)];
+
+    // Create role mentions
+    let roleMentions = '';
+    if (link.mentionRoles && link.mentionRoles.length > 0) {
+      roleMentions = link.mentionRoles.map(roleId => `<@&${roleId}>`).join(' ') + ' ';
+    }
+
+    // Send greeting and announcement in one message
+    await channel.send(`👋 Hello Contributors! ${roleMentions}\n\n${randomMsg}`);
+
+    // Send the embed
     await channel.send({ embeds: [embed] });
-    console.log(`📤 Posted embed for issue ${item.number} in ${channel.name}`);
+    console.log(`📤 Posted issue ${item.number} in ${channel.name}`);
   }
 }
 
-async function handlePullRequestOpened(payload, res) {
+async function handlePullRequestOpened(payload) {
   const repoName = payload.repository.full_name;
   const repoKey = String(repoName).toLowerCase();
   const item = payload.pull_request;
