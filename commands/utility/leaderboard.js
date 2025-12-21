@@ -1,6 +1,4 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const axios = require('axios');
-const cheerio = require('cheerio');
 
 // Cache for leaderboard data
 let leaderboardCache = {
@@ -13,6 +11,8 @@ let leaderboardCache = {
 const ALLOWED_CHANNELS = ['1184746712351395850', '1184783944378495046'];
 
 async function fetchLeaderboardData() {
+  const axios = require('axios');
+
   const now = Date.now();
 
   // Check if cache is still valid
@@ -21,69 +21,26 @@ async function fetchLeaderboardData() {
   }
 
   try {
-    console.log('Fetching leaderboard data from website...');
-    const response = await axios.get('https://events.geekhaven.in/user/leaderboard/Opencode', {
-      timeout: 10000, // 10 second timeout
+    console.log('Fetching leaderboard data from API...');
+    const response = await axios.get('https://events.geekhaven.in/back/api/v1/events/Opencode/leaderboard', {
+      timeout: 10000,
       headers: {
         'User-Agent': 'GeekBot/1.0 (Discord Bot for OpenCode)'
       }
     });
 
-    const $ = cheerio.load(response.data);
-    const leaderboard = [];
+    const leaderboardData = response.data;
 
-    // Parse the leaderboard table
-    // Note: This selector may need adjustment based on actual HTML structure
-    $('table tbody tr').each((index, element) => {
-      const $row = $(element);
-      const cells = $row.find('td');
-
-      if (cells.length >= 3) {
-        const rank = parseInt($(cells[0]).text().trim()) || index + 1;
-        const name = $(cells[1]).text().trim();
-        const score = $(cells[2]).text().trim();
-
-        if (name && score) {
-          leaderboard.push({
-            rank,
-            name,
-            score,
-            position: index + 1
-          });
-        }
-      }
-    });
-
-    // If no data found with table selector, try alternative selectors
-    if (leaderboard.length === 0) {
-      // Try different possible selectors
-      const selectors = [
-        '.leaderboard-entry',
-        '.participant',
-        '[data-rank]',
-        '.rank-entry'
-      ];
-
-      for (const selector of selectors) {
-        $(selector).each((index, element) => {
-          const $el = $(element);
-          const rank = parseInt($el.find('[data-rank], .rank').text().trim() || $el.attr('data-rank')) || index + 1;
-          const name = $el.find('.name, .participant-name, h3, h4').text().trim();
-          const score = $el.find('.score, .points, .total').text().trim();
-
-          if (name && score) {
-            leaderboard.push({
-              rank,
-              name,
-              score,
-              position: index + 1
-            });
-          }
-        });
-
-        if (leaderboard.length > 0) break;
-      }
-    }
+    // The API returns data wrapped in an object: { status, message, data: [...] }
+    const leaderboard = leaderboardData.data.map((participant, index) => ({
+      rank: participant.position,
+      name: participant.name || participant.githubid, // Use name if available, fallback to githubid
+      score: participant.points,
+      githubid: participant.githubid,
+      prmerged: participant.prmerged,
+      avatarUrl: participant.avatarUrl,
+      position: index + 1
+    }));
 
     // Sort by rank if not already sorted
     leaderboard.sort((a, b) => a.rank - b.rank);
@@ -92,12 +49,12 @@ async function fetchLeaderboardData() {
     leaderboardCache.data = leaderboard;
     leaderboardCache.timestamp = now;
 
-    console.log(`Fetched ${leaderboard.length} leaderboard entries`);
+    console.log(`Fetched ${leaderboard.length} leaderboard entries from API`);
     return leaderboard;
 
   } catch (error) {
-    console.error('Error fetching leaderboard:', error.message);
-    throw new Error('Failed to fetch leaderboard data. Please try again later.');
+    console.error('Error fetching leaderboard from API:', error.message);
+    throw new Error('Failed to fetch leaderboard data from API. Please try again later.');
   }
 }
 
@@ -175,7 +132,7 @@ module.exports = {
       });
     }
 
-    await interaction.deferReply();
+    await interaction.deferReply({ ephemeral: true }); // Make the response ephemeral
 
     try {
       const leaderboard = await fetchLeaderboardData();
@@ -185,8 +142,9 @@ module.exports = {
           embeds: [
             new EmbedBuilder()
               .setTitle('🏆 OpenCode Leaderboard')
-              .setDescription('No leaderboard data available at the moment.')
-              .setColor(0xff0000)
+              .setDescription('❌ **Leaderboard data is currently unavailable**\n\nThe leaderboard website uses JavaScript to load data dynamically, which cannot be scraped by traditional methods.\n\n📊 **To view the leaderboard:**\n• Visit: https://events.geekhaven.in/user/leaderboard/Opencode\n• Check the website directly for live rankings\n\n🔄 Data will be refreshed automatically when available.')
+              .setColor(0xff6b6b)
+              .setFooter({ text: 'GeekBot - OpenCode Leaderboard' })
           ]
         });
       }

@@ -131,7 +131,7 @@ Points: 5
 ```
 /leaderboard
 ```
-**Bot Response:**
+**Bot Response (when data is available):**
 ```
 🏆 OpenCode Leaderboard
 Page 1/5 • Total Participants: 47
@@ -151,6 +151,21 @@ Score: 2100
 [...showing 10 entries per page...]
 
 [Previous] [1/5] [Next]  ← Interactive buttons for pagination
+```
+
+**Bot Response (when data unavailable):**
+```
+🏆 OpenCode Leaderboard
+
+❌ Leaderboard data is currently unavailable
+
+The leaderboard website uses JavaScript to load data dynamically, which cannot be scraped by traditional methods.
+
+📊 To view the leaderboard:
+• Visit: https://events.geekhaven.in/user/leaderboard/Opencode
+• Check the website directly for live rankings
+
+🔄 Data will be refreshed automatically when available.
 ```
 
 **Welcome Message:**

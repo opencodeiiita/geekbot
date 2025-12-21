@@ -99,7 +99,7 @@ async function handleLeaderboardButton(interaction) {
     const leaderboard = await fetchLeaderboardData();
     if (!leaderboard || leaderboard.length === 0) {
       return await interaction.editReply({
-        content: 'No leaderboard data available.',
+        content: '❌ Leaderboard data is currently unavailable. The website uses JavaScript rendering that cannot be scraped.',
         embeds: [],
         components: []
       });
@@ -134,10 +134,37 @@ async function handleLeaderboardButton(interaction) {
 
   } catch (error) {
     console.error('Leaderboard button error:', error);
-    await interaction.editReply({
-      content: '❌ Error updating leaderboard. Please try the command again.',
-      embeds: [],
-      components: []
-    });
+
+    // Handle expired interactions gracefully
+    if (error.code === 10062 || error.message.includes('Unknown interaction')) {
+      // Interaction has expired or is unknown
+      try {
+        await interaction.reply({
+          content: '❌ This leaderboard message is too old. Please run `/leaderboard` again to get a fresh view with working buttons.',
+          ephemeral: true
+        });
+      } catch (replyError) {
+        // If reply fails, try followUp
+        try {
+          await interaction.followUp({
+            content: '❌ This leaderboard message is too old. Please run `/leaderboard` again to get a fresh view with working buttons.',
+            ephemeral: true
+          });
+        } catch (followUpError) {
+          console.error('Could not send error message for expired interaction:', followUpError);
+        }
+      }
+    } else {
+      // Other errors
+      try {
+        await interaction.editReply({
+          content: '❌ Error updating leaderboard. Please try the command again.',
+          embeds: [],
+          components: []
+        });
+      } catch (editError) {
+        console.error('Could not edit reply for button error:', editError);
+      }
+    }
   }
 }
