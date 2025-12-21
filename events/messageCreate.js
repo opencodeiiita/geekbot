@@ -12,22 +12,43 @@ module.exports = {
     if (message.content.startsWith('!register')) {
       const args = message.content.split(' ').slice(1);
       if (args.length < 2) {
-        return message.reply('Usage: !register [owner/repo] [channel-name] [role1] [role2] ...');
+        return message.reply('Usage: !register [owner/repo] [#channel] [role1] [role2] ...');
       }
 
       // Accept "owner/repo" format only
       const rawRepo = args[0];
       if (!rawRepo.includes('/')) {
-        return message.reply('Usage: !register [owner/repo] [channel-name]');
+        return message.reply('Usage: !register [owner/repo] [#channel]');
       }
       const repoName = rawRepo;
       const repoKey = repoName.toLowerCase();
-      const channelName = args[1];
+      const channelArg = args[1];
 
-      // Find the channel
-      const channel = message.guild.channels.cache.find(ch => ch.name === channelName);
+      // Parse channel mention or find by name
+      let channel;
+      const channelMentionMatch = channelArg.match(/^<#(\d+)>$/);
+      if (channelMentionMatch) {
+        // It's a channel mention, get by ID
+        channel = message.guild.channels.cache.get(channelMentionMatch[1]);
+      } else {
+        // It's a channel name, find by name
+        const matchingChannels = message.guild.channels.cache.filter(ch => ch.name === channelArg);
+        if (matchingChannels.size === 0) {
+          return message.reply(`Channel "${channelArg}" not found.`);
+        } else if (matchingChannels.size === 1) {
+          channel = matchingChannels.first();
+        } else {
+          // Multiple channels with same name
+          const channelList = matchingChannels.map(ch => {
+            const category = ch.parent ? ` (in ${ch.parent.name})` : '';
+            return `<#${ch.id}>${category}`;
+          }).join('\n');
+          return message.reply(`Multiple channels found with name "${channelArg}". Please specify which one:\n${channelList}`);
+        }
+      }
+
       if (!channel) {
-        return message.reply(`Channel "${channelName}" not found.`);
+        return message.reply(`Channel "${channelArg}" not found.`);
       }
 
       // Check permissions
