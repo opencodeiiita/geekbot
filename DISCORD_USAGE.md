@@ -58,7 +58,7 @@ CODE RED – This function just pulled a 'it works on my machine' and now produc
 | Command | Description | Usage |
 |---------|-------------|-------|
 | `/reload` | Reload bot commands | `/reload` |
-| `/test-welcome` | Test welcome message | `/test-welcome` |
+| `/leaderboard` | Display OpenCode leaderboard with pagination | `/leaderboard` |
 
 ## Events and Notifications
 
@@ -127,6 +127,32 @@ Points: 5
 [Rich embed with full details]
 ```
 
+**Leaderboard Command:**
+```
+/leaderboard
+```
+**Bot Response:**
+```
+🏆 OpenCode Leaderboard
+Page 1/5 • Total Participants: 47
+
+🥇 #1 - John Doe
+Score: 2500
+
+🥈 #2 - Jane Smith
+Score: 2350
+
+🥉 #3 - Bob Johnson
+Score: 2200
+
+📊 #4 - Alice Brown
+Score: 2100
+
+[...showing 10 entries per page...]
+
+[Previous] [1/5] [Next]  ← Interactive buttons for pagination
+```
+
 **Welcome Message:**
 ```
 Welcome @newuser to the server!
@@ -157,6 +183,7 @@ Don't forget to grab your roles in #role-selection!
 2. **Permissions**: Verify bot has "Send Messages" and "Embed Links" permissions
 3. **Channel Access**: Bot must have access to the target channel
 4. **Command Format**: Use correct syntax (e.g., `!register url #channel`)
+5. **Channel Restrictions**: Some commands like `/leaderboard` are only available in specific channels (#leaderboard🏆 and #bots🤖)
 
 ### Registration Issues
 

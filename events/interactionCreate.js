@@ -5,6 +5,14 @@ const ADMIN_ROLE_NAMES = new Set(['mentor', 'admin', 'server manager']);
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
+    // Handle button interactions for leaderboard
+    if (interaction.isButton()) {
+      if (interaction.customId.startsWith('leaderboard_')) {
+        await handleLeaderboardButton(interaction);
+        return;
+      }
+    }
+
     if (!interaction.isChatInputCommand()) return;
     const command = interaction.client.commands.get(interaction.commandName);
 
@@ -80,3 +88,56 @@ module.exports = {
     }
   },
 };
+
+// Handle leaderboard button interactions
+async function handleLeaderboardButton(interaction) {
+  const { createLeaderboardEmbed, createNavigationButtons, fetchLeaderboardData } = require('../commands/utility/leaderboard');
+
+  try {
+    await interaction.deferUpdate();
+
+    const leaderboard = await fetchLeaderboardData();
+    if (!leaderboard || leaderboard.length === 0) {
+      return await interaction.editReply({
+        content: 'No leaderboard data available.',
+        embeds: [],
+        components: []
+      });
+    }
+
+    const totalPages = Math.ceil(leaderboard.length / 10);
+    let currentPage = 1;
+
+    // Extract current page from embed description
+    const embed = interaction.message.embeds[0];
+    if (embed && embed.description) {
+      const pageMatch = embed.description.match(/Page (\d+)\//);
+      if (pageMatch) {
+        currentPage = parseInt(pageMatch[1]);
+      }
+    }
+
+    // Handle button actions
+    if (interaction.customId.startsWith('leaderboard_prev_')) {
+      currentPage = Math.max(1, currentPage - 1);
+    } else if (interaction.customId.startsWith('leaderboard_next_')) {
+      currentPage = Math.min(totalPages, currentPage + 1);
+    }
+
+    const newEmbed = createLeaderboardEmbed(leaderboard, currentPage, totalPages);
+    const newButtons = createNavigationButtons(currentPage, totalPages);
+
+    await interaction.editReply({
+      embeds: [newEmbed],
+      components: totalPages > 1 ? [newButtons] : []
+    });
+
+  } catch (error) {
+    console.error('Leaderboard button error:', error);
+    await interaction.editReply({
+      content: '❌ Error updating leaderboard. Please try the command again.',
+      embeds: [],
+      components: []
+    });
+  }
+}
