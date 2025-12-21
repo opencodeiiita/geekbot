@@ -17,32 +17,59 @@ mongoose.connect(MONGODB_URI)
 
 // Create Express app for webhooks
 const app = express();
-app.use(express.json());
 
-// Webhook endpoint
-app.post('/api/v1/discord-bot', async (req, res) => {
-  console.log('🔗 Webhook received!');
-  const payload = req.body;
+// Capture the raw request body for GitHub signature verification.
+// GitHub computes the signature over the exact raw bytes, not JSON.stringify(req.body).
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    req.rawBody = buf;
+  },
+}));
+
+function verifyGithubSignature(req) {
   const signature = req.headers['x-hub-signature-256'];
+
+  if (!signature) {
+    return { ok: false, status: 401, msg: 'Unauthorized' };
+  }
+  if (!WEBHOOK_SECRET) {
+    return { ok: false, status: 500, msg: 'Server misconfigured' };
+  }
+
+  const computedSignature = crypto
+    .createHmac('sha256', WEBHOOK_SECRET)
+    .update(req.rawBody || Buffer.from(''))
+    .digest('hex');
+
+  const expected = Buffer.from(`sha256=${computedSignature}`, 'ascii');
+  const actual = Buffer.from(String(signature), 'ascii');
+
+  if (expected.length !== actual.length) {
+    return { ok: false, status: 401, msg: 'Unauthorized' };
+  }
+
+  if (!crypto.timingSafeEqual(expected, actual)) {
+    return { ok: false, status: 401, msg: 'Unauthorized' };
+  }
+
+  return { ok: true };
+}
+
+async function webhookHandler(req, res) {
+  console.log('🔗 Webhook received!');
+  const payload = req.body || {};
   const event = req.headers['x-github-event'];
 
   console.log(`Event: ${event}, Action: ${payload.action}, Repo: ${payload.repository?.full_name}`);
 
-  // Verify signature
-  const computedSignature = crypto
-      .createHmac('sha256', WEBHOOK_SECRET)
-      .update(JSON.stringify(payload))
-      .digest('hex');
-  const expected = Buffer.from(`sha256=${computedSignature}`, 'ascii');
-  const actual = Buffer.from(signature, 'ascii');
-  try {
-      if (!crypto.timingSafeEqual(expected, actual)) {
-          console.log('❌ Invalid webhook signature');
-          return res.status(401).send('Unauthorized');
-      }
-  } catch (error) {
-      console.log('❌ Signature verification error');
-      return res.status(400).send('Bad Request');
+  const signatureResult = verifyGithubSignature(req);
+  if (!signatureResult.ok) {
+    if (signatureResult.status === 401) {
+      console.log('❌ Invalid or missing webhook signature');
+    } else {
+      console.log('❌ Webhook server misconfigured (missing WEBHOOK_SECRET)');
+    }
+    return res.status(signatureResult.status).send(signatureResult.msg);
   }
 
   // Use the router function logic adapted for Discord bot
@@ -88,75 +115,146 @@ app.post('/api/v1/discord-bot', async (req, res) => {
   }
 
   res.status(200).send('OK');
-});
+}
+
+// Webhook endpoints (support both direct and /back-prefixed routing)
+app.post('/api/v1/discord-bot', webhookHandler);
+app.post('/back/api/v1/discord-bot', webhookHandler);
 
 async function handleIssueOpened(payload, res) {
   const repoName = payload.repository.full_name;
+  const repoKey = String(repoName).toLowerCase();
   const item = payload.issue;
 
-  const link = await RepoLink.findOne({ repoName });
+  // Prefer canonical match, fallback to legacy repoName match (case-insensitive) for existing DB entries.
+  let links = await RepoLink.find({ repoKey });
+  if (!links.length) {
+    links = await RepoLink.find({ repoName: new RegExp(`^${repoName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+  }
 
-  if (link) {
-    console.log(`✅ Found link for repo ${repoName}, posting to channel ${link.channelId}`);
-    const guild = client.guilds.cache.get(link.guildId);
-    if (guild) {
-      const channel = guild.channels.cache.get(link.channelId);
-      if (channel) {
-        const embed = {
-          title: `Issue #${item.number}`,
-          url: item.html_url,
-          description: item.title,
-          fields: [
-            { name: 'State', value: item.state, inline: true },
-            { name: 'Created by', value: item.user.login, inline: true },
-          ],
-          timestamp: item.created_at,
-        };
-        await channel.send({ embeds: [embed] });
-        console.log(`📤 Posted embed for issue ${item.number} in ${channel.name}`);
-      } else {
-        console.log('❌ Channel not found');
-      }
-    } else {
-      console.log('❌ Guild not found');
+  if (!links.length) {
+    console.log(`❌ No link found for repo ${repoName} (key: ${repoKey})`);
+    return;
+  }
+
+  // Extract labels
+  const labels = item.labels.map(l => l.name);
+  const labelsText = labels.length > 0 ? labels.join(', ') : 'None';
+
+  // Extract points from labels (e.g., "points: 10")
+  let points = 'Not specified';
+  let pointsValue = 0;
+  for (const label of labels) {
+    const match = label.match(/points:\s*(\d+)/i);
+    if (match) {
+      points = match[1];
+      pointsValue = parseInt(match[1], 10);
+      break;
     }
-  } else {
-    console.log(`❌ No link found for repo ${repoName}`);
+  }
+
+  // Determine type based on labels
+  let type = 'FCFS (First come first serve)';
+  if (labels.some(l => l.toLowerCase().includes('ofa') || l.toLowerCase().includes('open-for-all'))) {
+    type = 'Open for all';
+  } else if (labels.some(l => l.toLowerCase().includes('compe') || l.toLowerCase().includes('competitive'))) {
+    type = 'Competitive';
+  }
+
+  // Determine embed color based on points (higher points = more important color)
+  let color = 0x00ff00; // Default green
+  if (pointsValue >= 31) {
+    color = 0xff0000; // Red for very high points
+  } else if (pointsValue >= 21) {
+    color = 0xffa500; // Orange for high points
+  } else if (pointsValue >= 11) {
+    color = 0xffff00; // Yellow for medium points
+  }
+
+  // Truncate description if too long
+  const description = item.body ? (item.body.length > 500 ? item.body.substring(0, 500) + '...' : item.body) : 'No description provided.';
+
+  const embed = {
+    author: {
+      name: item.user.login,
+      icon_url: item.user.avatar_url,
+      url: item.user.html_url,
+    },
+    title: `Issue #${item.number}`,
+    url: item.html_url,
+    description: `**${item.title}**\n\n${description}`,
+    color: color,
+    fields: [
+      { name: 'Repository', value: `[${payload.repository.full_name}](${payload.repository.html_url})`, inline: true },
+      { name: 'Labels', value: labelsText || 'None', inline: true },
+      { name: 'Points', value: points, inline: true },
+      { name: 'Type', value: type, inline: true },
+      { name: 'State', value: item.state, inline: true },
+    ],
+    footer: {
+      text: 'Created',
+    },
+    timestamp: item.created_at,
+  };
+
+  for (const link of links) {
+    console.log(`✅ Found link for repo ${repoName}, posting to channel ${link.channelId} (guild ${link.guildId})`);
+    const guild = client.guilds.cache.get(link.guildId);
+    if (!guild) {
+      console.log('❌ Guild not found');
+      continue;
+    }
+    const channel = guild.channels.cache.get(link.channelId);
+    if (!channel) {
+      console.log('❌ Channel not found');
+      continue;
+    }
+    await channel.send({ embeds: [embed] });
+    console.log(`📤 Posted embed for issue ${item.number} in ${channel.name}`);
   }
 }
 
 async function handlePullRequestOpened(payload, res) {
   const repoName = payload.repository.full_name;
+  const repoKey = String(repoName).toLowerCase();
   const item = payload.pull_request;
 
-  const link = await RepoLink.findOne({ repoName });
+  // Prefer canonical match, fallback to legacy repoName match (case-insensitive) for existing DB entries.
+  let links = await RepoLink.find({ repoKey });
+  if (!links.length) {
+    links = await RepoLink.find({ repoName: new RegExp(`^${repoName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+  }
 
-  if (link) {
-    console.log(`✅ Found link for repo ${repoName}, posting to channel ${link.channelId}`);
+  if (!links.length) {
+    console.log(`❌ No link found for repo ${repoName} (key: ${repoKey})`);
+    return;
+  }
+
+  const embed = {
+    title: `Pull Request #${item.number}`,
+    url: item.html_url,
+    description: item.title,
+    fields: [
+      { name: 'State', value: item.state, inline: true },
+      { name: 'Created by', value: item.user.login, inline: true },
+    ],
+    timestamp: item.created_at,
+  };
+
+  for (const link of links) {
+    console.log(`✅ Found link for repo ${repoName}, posting to channel ${link.channelId} (guild ${link.guildId})`);
     const guild = client.guilds.cache.get(link.guildId);
-    if (guild) {
-      const channel = guild.channels.cache.get(link.channelId);
-      if (channel) {
-        const embed = {
-          title: `Pull Request #${item.number}`,
-          url: item.html_url,
-          description: item.title,
-          fields: [
-            { name: 'State', value: item.state, inline: true },
-            { name: 'Created by', value: item.user.login, inline: true },
-          ],
-          timestamp: item.created_at,
-        };
-        await channel.send({ embeds: [embed] });
-        console.log(`📤 Posted embed for PR ${item.number} in ${channel.name}`);
-      } else {
-        console.log('❌ Channel not found');
-      }
-    } else {
+    if (!guild) {
       console.log('❌ Guild not found');
+      continue;
     }
-  } else {
-    console.log(`❌ No link found for repo ${repoName}`);
+    const channel = guild.channels.cache.get(link.channelId);
+    if (!channel) {
+      console.log('❌ Channel not found');
+      continue;
+    }
+    await channel.send({ embeds: [embed] });
+    console.log(`📤 Posted embed for PR ${item.number} in ${channel.name}`);
   }
 }
 

@@ -15,7 +15,13 @@ module.exports = {
         return message.reply('Usage: !register [repo-name] [channel-name]');
       }
 
-      const repoName = `OPENCODE2025/${args[0]}`;
+      // Accept "owner/repo" format only
+      const rawRepo = args[0];
+      if (!rawRepo.includes('/')) {
+        return message.reply('Usage: !register [owner/repo] [channel-name]');
+      }
+      const repoName = rawRepo;
+      const repoKey = repoName.toLowerCase();
       const channelName = args[1];
 
       // Find the channel
@@ -32,29 +38,15 @@ module.exports = {
       // Save to database
       try {
         await RepoLink.findOneAndUpdate(
-          { guildId: message.guild.id, repoName },
-          { channelId: channel.id, lastChecked: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // 1 day ago to catch recent issues
+          { guildId: message.guild.id, repoKey, channelId: channel.id },
+          { repoName, repoKey, channelId: channel.id, lastChecked: new Date(Date.now() - 24 * 60 * 60 * 1000) },
           { upsert: true, new: true }
         );
 
-        // Create webhook
-        const [owner, repo] = repoName.split('/');
-        await octokit.repos.createWebhook({
-          owner,
-          repo,
-          config: {
-            url: 'https://events.geekhaven.in/discord_backend/discord_bot',
-            secret: process.env.GITHUB_WEBHOOK_SECRET,
-            content_type: 'json'
-          },
-          events: ['issues', 'pull_request'],
-          active: true
-        });
-
-        message.reply(`Registered ${repoName} to track updates in ${channel}. Webhook created.`);
+        message.reply(`Registered ${repoName} to track updates in ${channel}.`);
       } catch (error) {
         console.error(error);
-        message.reply('Error registering repo or creating webhook.');
+        message.reply('Error registering repo.');
       }
     }
   },

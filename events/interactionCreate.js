@@ -1,5 +1,7 @@
 const { Events, MessageFlags, Collection } = require('discord.js');
 
+const ADMIN_ROLE_NAMES = new Set(['mentor', 'admin', 'server manager']);
+
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
@@ -9,6 +11,27 @@ module.exports = {
     if (!command) {
       console.error(`No command matching ${interaction.commandName} was found.`);
       return;
+    }
+
+    // Role-gate admin commands
+    if (command.adminOnly) {
+      if (!interaction.inGuild()) {
+        return interaction.reply({
+          content: 'This command can only be used in a server.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const member = interaction.member;
+      const hasAllowedRole =
+        member?.roles?.cache?.some((role) => ADMIN_ROLE_NAMES.has(role.name.toLowerCase())) ?? false;
+
+      if (!hasAllowedRole) {
+        return interaction.reply({
+          content: 'You need the Mentor, Admin, or Server manager role to use this command.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
     }
 
     // checking for cooldowns
