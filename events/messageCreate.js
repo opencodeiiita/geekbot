@@ -1,4 +1,4 @@
-const { Events } = require('discord.js');
+const { Events, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
 const { Octokit } = require('@octokit/rest');
 const RepoLink = require('../models/repoLink');
 
@@ -38,12 +38,40 @@ module.exports = {
         } else if (matchingChannels.size === 1) {
           channel = matchingChannels.first();
         } else {
-          // Multiple channels with same name
-          const channelList = matchingChannels.map(ch => {
-            const category = ch.parent ? ` (in ${ch.parent.name})` : '';
-            return `<#${ch.id}>${category}`;
-          }).join('\n');
-          return message.reply(`Multiple channels found with name "${channelArg}". Please specify which one:\n${channelList}`);
+          // Multiple channels with same name - show select menu
+          const options = matchingChannels.map(ch => {
+            const category = ch.parent ? ` in ${ch.parent.name}` : '';
+            return new StringSelectMenuOptionBuilder()
+              .setLabel(ch.name)
+              .setDescription(`Channel${category}`)
+              .setValue(`register_channel_${ch.id}_${Date.now()}`); // Include timestamp to make unique
+          });
+
+          const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`register_channel_select_${message.author.id}_${Date.now()}`) // Make unique per user
+            .setPlaceholder(`Select the "${channelArg}" channel`)
+            .addOptions(options);
+
+          const row = new ActionRowBuilder().addComponents(selectMenu);
+
+          // Store registration context for later use
+          const registrationContext = {
+            repoName,
+            repoKey,
+            mentionRoles: args.slice(2), // Store raw role args for later processing
+            timestamp: Date.now()
+          };
+
+          // Store context (in a simple in-memory store for now - could be improved with a database)
+          if (!global.registrationContexts) {
+            global.registrationContexts = new Map();
+          }
+          global.registrationContexts.set(`register_${message.author.id}_${Date.now()}`, registrationContext);
+
+          return message.reply({
+            content: `Multiple channels found with name "${channelArg}". Please select which one to use:`,
+            components: [row]
+          });
         }
       }
 

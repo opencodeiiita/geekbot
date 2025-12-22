@@ -132,7 +132,7 @@ module.exports = {
       });
     }
 
-    await interaction.deferReply({ ephemeral: true }); // Make the response ephemeral
+    await interaction.deferReply();
 
     try {
       const leaderboard = await fetchLeaderboardData();
