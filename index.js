@@ -176,8 +176,12 @@ async function handleIssueOpened(payload) {
     color = 0xffff00;
   }
 
-  // Truncate description if too long
-  const description = item.body ? (item.body.length > 500 ? item.body.substring(0, 500) + '...' : item.body) : 'No description provided.';
+  // Truncate description to max 5 lines
+  let description = item.body || 'No description provided.';
+  const lines = description.split('\n');
+  if (lines.length > 5) {
+    description = lines.slice(0, 5).join('\n') + '\n...';
+  }
 
   const embed = {
     author: {
