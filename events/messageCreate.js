@@ -1,6 +1,7 @@
 const { Events, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { Octokit } = require('@octokit/rest');
 const RepoLink = require('../models/repoLink');
+const RegistrationContext = require('../models/registrationContext');
 
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
@@ -43,6 +44,7 @@ module.exports = {
             const perPage = 25;
             const currentPage = 0;
             const maxPages = Math.ceil(total / perPage);
+            const timestamp = Date.now();
 
             const pageChannels = Array.from(matchingChannels.values()).slice(currentPage * perPage, (currentPage + 1) * perPage);
             const options = pageChannels.map(ch => {
@@ -50,11 +52,11 @@ module.exports = {
               return new StringSelectMenuOptionBuilder()
                 .setLabel(ch.name)
                 .setDescription(`Channel${category}`)
-                .setValue(`register_channel_${ch.id}_${Date.now()}`); // Include timestamp to make unique
+                .setValue(`register_channel_${ch.id}_${timestamp}`); // Use timestamp
             });
 
             const selectMenu = new StringSelectMenuBuilder()
-              .setCustomId(`register_channel_select_${message.author.id}_${Date.now()}`) // Make unique per user
+              .setCustomId(`register_channel_select_${message.author.id}_${timestamp}`) // Use timestamp
               .setPlaceholder(`Select the "${channelArg}" channel (Page ${currentPage + 1}/${maxPages})`)
               .addOptions(options);
 
@@ -65,13 +67,13 @@ module.exports = {
               const buttons = [];
               if (currentPage > 0) {
                 buttons.push(new ButtonBuilder()
-                  .setCustomId(`register_page_prev_${message.author.id}_${Date.now()}`)
+                  .setCustomId(`register_page_prev_${message.author.id}_${timestamp}`)
                   .setLabel('Previous')
                   .setStyle(ButtonStyle.Secondary));
               }
               if (currentPage < maxPages - 1) {
                 buttons.push(new ButtonBuilder()
-                  .setCustomId(`register_page_next_${message.author.id}_${Date.now()}`)
+                  .setCustomId(`register_page_next_${message.author.id}_${timestamp}`)
                   .setLabel('Next')
                   .setStyle(ButtonStyle.Secondary));
               }
@@ -80,21 +82,24 @@ module.exports = {
               }
             }
 
-            // Store registration context for later use
-            const registrationContext = {
-              repoName,
-              repoKey,
-              mentionRoles: args.slice(2), // Roles start from index 2
-              matchingChannels: Array.from(matchingChannels.values()),
-              currentPage,
-              timestamp: Date.now()
-            };
+            // Store registration context in DB
+            const key = `register_${message.author.id}_${timestamp}`;
+            await RegistrationContext.findOneAndUpdate(
+              { key },
+              {
+                key,
+                repoName,
+                repoKey,
+                mentionRoles: args.slice(2),
+                matchingChannels: Array.from(matchingChannels.values()),
+                currentPage,
+                timestamp,
+                userId: message.author.id
+              },
+              { upsert: true, new: true }
+            );
 
-            // Store context
-            if (!global.registrationContexts) {
-              global.registrationContexts = new Map();
-            }
-            global.registrationContexts.set(`register_${message.author.id}_${Date.now()}`, registrationContext);
+            console.log('Stored registration context in DB for key:', key, 'channels:', matchingChannels.size);
 
             return message.reply({
               content: `Multiple channels found with name "${channelArg}". Please select which one to use:`,

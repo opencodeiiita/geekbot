@@ -1,4 +1,5 @@
 const { Events, MessageFlags, Collection } = require('discord.js');
+const RegistrationContext = require('../models/registrationContext');
 
 const ADMIN_ROLE_NAMES = new Set(['mentor', 'admin', 'server manager']);
 
@@ -194,26 +195,31 @@ async function handleRegisterChannelSelect(interaction) {
   const timestamp = contextKeyMatch[2];
   const contextKey = `register_${userId}_${timestamp}`;
 
-  // Get stored context
-  if (!global.registrationContexts || !global.registrationContexts.has(contextKey)) {
+  // Get stored context from DB
+  const contextDoc = await RegistrationContext.findOne({ key: contextKey });
+  if (!contextDoc) {
+    console.log('Context not found in DB for key:', contextKey);
     return await interaction.reply({
       content: '❌ Registration context expired. Please try the !register command again.',
       ephemeral: true
     });
   }
-
-  const context = global.registrationContexts.get(contextKey);
 
   // Check if context is expired (5 minutes)
-  if (Date.now() - context.timestamp > 5 * 60 * 1000) {
-    global.registrationContexts.delete(contextKey);
+  if (Date.now() - contextDoc.timestamp > 5 * 60 * 1000) {
+    console.log('Context expired for key:', contextKey, 'age:', Date.now() - contextDoc.timestamp);
+    await RegistrationContext.deleteOne({ key: contextKey });
     return await interaction.reply({
       content: '❌ Registration context expired. Please try the !register command again.',
       ephemeral: true
     });
   }
 
-  global.registrationContexts.delete(contextKey); // Clean up
+  console.log('Retrieved context from DB for key:', contextKey);
+
+  const context = contextDoc.toObject();
+
+  await RegistrationContext.deleteOne({ key: contextKey }); // Clean up
 
   // Check permissions
   if (!channel.permissionsFor(interaction.guild.members.me).has('SendMessages')) {
@@ -292,24 +298,29 @@ async function handleRegisterPageButton(interaction) {
   const timestamp = match[3];
   const contextKey = `register_${userId}_${timestamp}`;
 
-  // Get stored context
-  if (!global.registrationContexts || !global.registrationContexts.has(contextKey)) {
+  // Get stored context from DB
+  const contextDoc = await RegistrationContext.findOne({ key: contextKey });
+  if (!contextDoc) {
+    console.log('Page button: Context not found in DB for key:', contextKey);
     return await interaction.reply({
       content: '❌ Registration context expired. Please try the !register command again.',
       ephemeral: true
     });
   }
-
-  const context = global.registrationContexts.get(contextKey);
 
   // Check if context is expired (5 minutes)
-  if (Date.now() - context.timestamp > 5 * 60 * 1000) {
-    global.registrationContexts.delete(contextKey);
+  if (Date.now() - contextDoc.timestamp > 5 * 60 * 1000) {
+    console.log('Page button: Context expired for key:', contextKey, 'age:', Date.now() - contextDoc.timestamp);
+    await RegistrationContext.deleteOne({ key: contextKey });
     return await interaction.reply({
       content: '❌ Registration context expired. Please try the !register command again.',
       ephemeral: true
     });
   }
+
+  console.log('Page button: Retrieved context from DB for key:', contextKey);
+
+  const context = contextDoc.toObject();
 
   // Update page
   const perPage = 25;
@@ -325,6 +336,13 @@ async function handleRegisterPageButton(interaction) {
 
   // Update context
   context.currentPage = newPage;
+
+  // Save updated context to DB
+  await RegistrationContext.findOneAndUpdate(
+    { key: contextKey },
+    { currentPage: newPage },
+    { new: true }
+  );
 
   // Rebuild options
   const pageChannels = context.matchingChannels.slice(newPage * perPage, (newPage + 1) * perPage);
