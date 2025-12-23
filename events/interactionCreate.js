@@ -11,6 +11,10 @@ module.exports = {
         await handleLeaderboardButton(interaction);
         return;
       }
+      if (interaction.customId.startsWith('register_page_')) {
+        await handleRegisterPageButton(interaction);
+        return;
+      }
     }
 
     // Handle select menu interactions
@@ -199,6 +203,16 @@ async function handleRegisterChannelSelect(interaction) {
   }
 
   const context = global.registrationContexts.get(contextKey);
+
+  // Check if context is expired (5 minutes)
+  if (Date.now() - context.timestamp > 5 * 60 * 1000) {
+    global.registrationContexts.delete(contextKey);
+    return await interaction.reply({
+      content: '❌ Registration context expired. Please try the !register command again.',
+      ephemeral: true
+    });
+  }
+
   global.registrationContexts.delete(contextKey); // Clean up
 
   // Check permissions
@@ -255,4 +269,101 @@ async function handleRegisterChannelSelect(interaction) {
       ephemeral: true
     });
   }
+}
+
+async function handleRegisterPageButton(interaction) {
+  const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+
+  const customId = interaction.customId;
+  const isPrev = customId.includes('_prev_');
+  const isNext = customId.includes('_next_');
+
+  // Extract userId and timestamp
+  const match = customId.match(/register_page_(prev|next)_(\d+)_(\d+)/);
+  if (!match) {
+    return await interaction.reply({
+      content: '❌ Invalid button.',
+      ephemeral: true
+    });
+  }
+
+  const direction = match[1];
+  const userId = match[2];
+  const timestamp = match[3];
+  const contextKey = `register_${userId}_${timestamp}`;
+
+  // Get stored context
+  if (!global.registrationContexts || !global.registrationContexts.has(contextKey)) {
+    return await interaction.reply({
+      content: '❌ Registration context expired. Please try the !register command again.',
+      ephemeral: true
+    });
+  }
+
+  const context = global.registrationContexts.get(contextKey);
+
+  // Check if context is expired (5 minutes)
+  if (Date.now() - context.timestamp > 5 * 60 * 1000) {
+    global.registrationContexts.delete(contextKey);
+    return await interaction.reply({
+      content: '❌ Registration context expired. Please try the !register command again.',
+      ephemeral: true
+    });
+  }
+
+  // Update page
+  const perPage = 25;
+  const total = context.matchingChannels.length;
+  const maxPages = Math.ceil(total / perPage);
+  let newPage = context.currentPage;
+
+  if (direction === 'prev' && newPage > 0) {
+    newPage--;
+  } else if (direction === 'next' && newPage < maxPages - 1) {
+    newPage++;
+  }
+
+  // Update context
+  context.currentPage = newPage;
+
+  // Rebuild options
+  const pageChannels = context.matchingChannels.slice(newPage * perPage, (newPage + 1) * perPage);
+  const options = pageChannels.map(ch => {
+    const category = ch.parent ? ` in ${ch.parent.name}` : '';
+    return new StringSelectMenuOptionBuilder()
+      .setLabel(ch.name)
+      .setDescription(`Channel${category}`)
+      .setValue(`register_channel_${ch.id}_${Date.now()}`); // New timestamp to make unique
+  });
+
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId(`register_channel_select_${userId}_${timestamp}`) // Same timestamp
+    .setPlaceholder(`Select the channel (Page ${newPage + 1}/${maxPages})`)
+    .addOptions(options);
+
+  const components = [new ActionRowBuilder().addComponents(selectMenu)];
+
+  // Add pagination buttons
+  const buttons = [];
+  if (newPage > 0) {
+    buttons.push(new ButtonBuilder()
+      .setCustomId(`register_page_prev_${userId}_${timestamp}`)
+      .setLabel('Previous')
+      .setStyle(ButtonStyle.Secondary));
+  }
+  if (newPage < maxPages - 1) {
+    buttons.push(new ButtonBuilder()
+      .setCustomId(`register_page_next_${userId}_${timestamp}`)
+      .setLabel('Next')
+      .setStyle(ButtonStyle.Secondary));
+  }
+  if (buttons.length > 0) {
+    components.push(new ActionRowBuilder().addComponents(buttons));
+  }
+
+  // Update the message
+  await interaction.update({
+    content: `Multiple channels found. Please select which one to use:`,
+    components
+  });
 }

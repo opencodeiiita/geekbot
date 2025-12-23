@@ -1,4 +1,4 @@
-const { Events, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+const { Events, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { Octokit } = require('@octokit/rest');
 const RepoLink = require('../models/repoLink');
 
@@ -10,73 +10,103 @@ module.exports = {
     if (message.author.bot) return;
 
     if (message.content.startsWith('!register')) {
+      console.log('!register command received:', message.content, 'from', message.author.tag, 'in', message.guild?.name);
       const args = message.content.split(' ').slice(1);
-      if (args.length < 2) {
+      if (args.length < 1) {
         return message.reply('Usage: !register [owner/repo] [#channel] [role1] [role2] ...');
       }
 
       // Accept "owner/repo" format only
       const rawRepo = args[0];
       if (!rawRepo.includes('/')) {
-        return message.reply('Usage: !register [owner/repo] [#channel]');
+        return message.reply('Usage: !register [owner/repo] [#channel] [role1] [role2] ...');
       }
       const repoName = rawRepo;
       const repoKey = repoName.toLowerCase();
-      const channelArg = args[1];
 
-      // Parse channel mention or find by name
-      let channel;
-      const channelMentionMatch = channelArg.match(/^<#(\d+)>$/);
-      if (channelMentionMatch) {
-        // It's a channel mention, get by ID
-        channel = message.guild.channels.cache.get(channelMentionMatch[1]);
-      } else {
-        // It's a channel name, find by name
-        const matchingChannels = message.guild.channels.cache.filter(ch => ch.name === channelArg);
-        if (matchingChannels.size === 0) {
-          return message.reply(`Channel "${channelArg}" not found.`);
-        } else if (matchingChannels.size === 1) {
-          channel = matchingChannels.first();
+      let channel = message.channel;
+      let roleStartIndex = 1;
+      if (args.length >= 2) {
+        const channelArg = args[1];
+        // Try to parse as channel
+        let parsedChannel;
+        const channelMentionMatch = channelArg.match(/^<#(\d+)>$/);
+        if (channelMentionMatch) {
+          parsedChannel = message.guild.channels.cache.get(channelMentionMatch[1]);
         } else {
-          // Multiple channels with same name - show select menu
-          const options = matchingChannels.map(ch => {
-            const category = ch.parent ? ` in ${ch.parent.name}` : '';
-            return new StringSelectMenuOptionBuilder()
-              .setLabel(ch.name)
-              .setDescription(`Channel${category}`)
-              .setValue(`register_channel_${ch.id}_${Date.now()}`); // Include timestamp to make unique
-          });
+          const matchingChannels = message.guild.channels.cache.filter(ch => ch.name === channelArg);
+          if (matchingChannels.size === 1) {
+            parsedChannel = matchingChannels.first();
+          } else if (matchingChannels.size > 1) {
+            // Multiple channels - show paginated select menu
+            const total = matchingChannels.size;
+            const perPage = 25;
+            const currentPage = 0;
+            const maxPages = Math.ceil(total / perPage);
 
-          const selectMenu = new StringSelectMenuBuilder()
-            .setCustomId(`register_channel_select_${message.author.id}_${Date.now()}`) // Make unique per user
-            .setPlaceholder(`Select the "${channelArg}" channel`)
-            .addOptions(options);
+            const pageChannels = Array.from(matchingChannels.values()).slice(currentPage * perPage, (currentPage + 1) * perPage);
+            const options = pageChannels.map(ch => {
+              const category = ch.parent ? ` in ${ch.parent.name}` : '';
+              return new StringSelectMenuOptionBuilder()
+                .setLabel(ch.name)
+                .setDescription(`Channel${category}`)
+                .setValue(`register_channel_${ch.id}_${Date.now()}`); // Include timestamp to make unique
+            });
 
-          const row = new ActionRowBuilder().addComponents(selectMenu);
+            const selectMenu = new StringSelectMenuBuilder()
+              .setCustomId(`register_channel_select_${message.author.id}_${Date.now()}`) // Make unique per user
+              .setPlaceholder(`Select the "${channelArg}" channel (Page ${currentPage + 1}/${maxPages})`)
+              .addOptions(options);
 
-          // Store registration context for later use
-          const registrationContext = {
-            repoName,
-            repoKey,
-            mentionRoles: args.slice(2), // Store raw role args for later processing
-            timestamp: Date.now()
-          };
+            const components = [new ActionRowBuilder().addComponents(selectMenu)];
 
-          // Store context (in a simple in-memory store for now - could be improved with a database)
-          if (!global.registrationContexts) {
-            global.registrationContexts = new Map();
+            // Add pagination buttons if needed
+            if (maxPages > 1) {
+              const buttons = [];
+              if (currentPage > 0) {
+                buttons.push(new ButtonBuilder()
+                  .setCustomId(`register_page_prev_${message.author.id}_${Date.now()}`)
+                  .setLabel('Previous')
+                  .setStyle(ButtonStyle.Secondary));
+              }
+              if (currentPage < maxPages - 1) {
+                buttons.push(new ButtonBuilder()
+                  .setCustomId(`register_page_next_${message.author.id}_${Date.now()}`)
+                  .setLabel('Next')
+                  .setStyle(ButtonStyle.Secondary));
+              }
+              if (buttons.length > 0) {
+                components.push(new ActionRowBuilder().addComponents(buttons));
+              }
+            }
+
+            // Store registration context for later use
+            const registrationContext = {
+              repoName,
+              repoKey,
+              mentionRoles: args.slice(2), // Roles start from index 2
+              matchingChannels: Array.from(matchingChannels.values()),
+              currentPage,
+              timestamp: Date.now()
+            };
+
+            // Store context
+            if (!global.registrationContexts) {
+              global.registrationContexts = new Map();
+            }
+            global.registrationContexts.set(`register_${message.author.id}_${Date.now()}`, registrationContext);
+
+            return message.reply({
+              content: `Multiple channels found with name "${channelArg}". Please select which one to use:`,
+              components
+            });
           }
-          global.registrationContexts.set(`register_${message.author.id}_${Date.now()}`, registrationContext);
-
-          return message.reply({
-            content: `Multiple channels found with name "${channelArg}". Please select which one to use:`,
-            components: [row]
-          });
         }
-      }
-
-      if (!channel) {
-        return message.reply(`Channel "${channelArg}" not found.`);
+        if (parsedChannel) {
+          channel = parsedChannel;
+          roleStartIndex = 2;
+        }
+        // If not parsed, keep default channel and roleStartIndex=1
       }
 
       // Check permissions
@@ -86,7 +116,7 @@ module.exports = {
 
       // Parse roles (optional)
       const mentionRoles = [];
-      for (let i = 2; i < args.length; i++) {
+      for (let i = roleStartIndex; i < args.length; i++) {
         const roleArg = args[i];
         // If it's a mention <@&id>, extract id
         const match = roleArg.match(/^<@&(\d+)>$/);
