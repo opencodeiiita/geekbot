@@ -1,11 +1,22 @@
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
+const mongoose = require('mongoose');
 const { Client, Collection, GatewayIntentBits } = require('discord.js');
-const { DISCORD_TOKEN } = process.env;
+const { createWebhookServer, startWebhookServer } = require('./utils/webhookServer');
+
+const { DISCORD_TOKEN, MONGODB_URI, PORT } = process.env;
+
+// Connect to MongoDB
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 // Create a new client instance
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+
+// Create webhook server
+const app = createWebhookServer(client);
 
 // creating a cooldown collection
 client.cooldowns = new Collection();
@@ -47,3 +58,7 @@ for (const file of eventFiles) {
 
 // Log in to Discord with your client's DISCORD_TOKEN
 client.login(DISCORD_TOKEN);
+
+// Start the Express server for webhooks
+const serverPort = PORT || 3001;
+startWebhookServer(app, serverPort);
