@@ -302,10 +302,15 @@ async function handleRegisterPageButton(interaction) {
   const contextDoc = await RegistrationContext.findOne({ key: contextKey });
   if (!contextDoc) {
     console.log('Page button: Context not found in DB for key:', contextKey);
-    return await interaction.reply({
-      content: '❌ Registration context expired. Please try the !register command again.',
-      ephemeral: true
-    });
+    try {
+      return await interaction.reply({
+        content: '❌ Registration context expired. Please try the !register command again.',
+        ephemeral: true
+      });
+    } catch (error) {
+      console.log('Failed to reply to expired interaction:', error.message);
+      return;
+    }
   }
 
   // Check if context is expired (5 minutes)
@@ -346,14 +351,14 @@ async function handleRegisterPageButton(interaction) {
 
   // Rebuild options
   const pageChannels = context.matchingChannels.slice(newPage * perPage, (newPage + 1) * perPage);
-  const timestamp = Date.now();
+  const newTimestamp = Date.now();
   const options = pageChannels.map((ch, index) => {
     const category = ch.parent ? ` in ${ch.parent.name}` : '';
     const channelName = ch.name || `Channel ${ch.id}`;
     return new StringSelectMenuOptionBuilder()
       .setLabel(channelName)
       .setDescription(`Channel${category}`)
-      .setValue(`register_channel_${ch.id}_${timestamp}_${index}`); // Include index to ensure uniqueness
+      .setValue(`register_channel_${ch.id}_${newTimestamp}_${index}_${Math.random().toString(36).substr(2, 9)}`); // Add random string for uniqueness
   });
 
   const selectMenu = new StringSelectMenuBuilder()
