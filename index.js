@@ -229,7 +229,13 @@ async function handleIssueOpened(payload) {
     // Create role mentions
     let roleMentions = '';
     if (link.mentionRoles && link.mentionRoles.length > 0) {
-      roleMentions = link.mentionRoles.map(roleId => `<@&${roleId}>`).join(' ') + ' ';
+      roleMentions = link.mentionRoles
+        .filter(roleId => {
+          const role = guild.roles.cache.get(roleId);
+          return role && !['Mentor', 'Contributor'].includes(role.name);
+        })
+        .map(roleId => `<@&${roleId}>`)
+        .join(' ') + ' ';
     }
 
     // Send greeting and announcement in one message

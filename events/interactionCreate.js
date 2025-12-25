@@ -346,12 +346,14 @@ async function handleRegisterPageButton(interaction) {
 
   // Rebuild options
   const pageChannels = context.matchingChannels.slice(newPage * perPage, (newPage + 1) * perPage);
-  const options = pageChannels.map(ch => {
+  const timestamp = Date.now();
+  const options = pageChannels.map((ch, index) => {
     const category = ch.parent ? ` in ${ch.parent.name}` : '';
+    const channelName = ch.name || `Channel ${ch.id}`;
     return new StringSelectMenuOptionBuilder()
-      .setLabel(ch.name)
+      .setLabel(channelName)
       .setDescription(`Channel${category}`)
-      .setValue(`register_channel_${ch.id}_${Date.now()}`); // New timestamp to make unique
+      .setValue(`register_channel_${ch.id}_${timestamp}_${index}`); // Include index to ensure uniqueness
   });
 
   const selectMenu = new StringSelectMenuBuilder()
