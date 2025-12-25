@@ -17,6 +17,15 @@ module.exports = {
         return message.reply('Usage: !register [owner/repo] [#channel] [role1] [role2] ...');
       }
 
+      // Check permissions - only allow Mentor, Server manager, Organiser roles
+      const allowedRoles = ['mentor', 'server manager', 'organiser'];
+      const member = message.member;
+      const hasAllowedRole = member?.roles?.cache?.some((role) => allowedRoles.includes(role.name.toLowerCase())) ?? false;
+
+      if (!hasAllowedRole) {
+        return message.reply('You need the Mentor, Server manager, or Organiser role to use this command.');
+      }
+
       // Accept "owner/repo" format only
       const rawRepo = args[0];
       if (!rawRepo.includes('/')) {
@@ -84,6 +93,12 @@ module.exports = {
 
             // Store registration context in DB
             const key = `register_${message.author.id}_${timestamp}`;
+            // Store simplified channel data instead of full objects
+            const simplifiedChannels = Array.from(matchingChannels.values()).map(ch => ({
+              id: ch.id,
+              name: ch.name,
+              parentName: ch.parent?.name || null
+            }));
             await RegistrationContext.findOneAndUpdate(
               { key },
               {
@@ -91,7 +106,7 @@ module.exports = {
                 repoName,
                 repoKey,
                 mentionRoles: args.slice(2),
-                matchingChannels: Array.from(matchingChannels.values()),
+                matchingChannels: simplifiedChannels,
                 currentPage,
                 timestamp,
                 userId: message.author.id

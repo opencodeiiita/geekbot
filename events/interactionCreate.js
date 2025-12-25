@@ -353,8 +353,10 @@ async function handleRegisterPageButton(interaction) {
   const pageChannels = context.matchingChannels.slice(newPage * perPage, (newPage + 1) * perPage);
   const newTimestamp = Date.now();
   const options = pageChannels.map((ch, index) => {
-    const category = ch.parent ? ` in ${ch.parent.name}` : '';
-    const channelName = ch.name || `Channel ${ch.id}`;
+    // Get the actual channel from guild cache to check if it still exists
+    const actualChannel = interaction.guild.channels.cache.get(ch.id);
+    const category = ch.parentName ? ` in ${ch.parentName}` : (actualChannel?.parent ? ` in ${actualChannel.parent.name}` : '');
+    const channelName = ch.name || `Channel ${ch.id || 'unknown'}`;
     return new StringSelectMenuOptionBuilder()
       .setLabel(channelName)
       .setDescription(`Channel${category}`)

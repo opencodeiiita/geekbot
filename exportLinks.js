@@ -23,6 +23,10 @@ async function exportLinks() {
     process.exit(1);
   }
 
+  // Fetch roles to ensure cache
+  await guild.roles.fetch();
+  console.log('Fetched roles');
+
   // Fetch channels to ensure cache
   await guild.channels.fetch();
   console.log('Fetched channels');
@@ -38,12 +42,20 @@ async function exportLinks() {
     const channelName = channel ? channel.name : 'Unknown Channel';
     const categoryName = channel?.parent?.name || 'No Category';
 
+    // Convert role IDs to role names and sanitize
+    const roleNames = link.mentionRoles.map(roleId => {
+      const role = guild.roles.cache.get(roleId);
+      const roleName = role ? role.name : `Unknown Role (${roleId})`;
+      // Remove all Unicode characters above U+FFFF (emojis, symbols, etc.)
+      return roleName.replace(/[\u{10000}-\u{10FFFF}]/gu, '').trim();
+    });
+
     data.push({
-      RepoName: link.repoName,
-      ChannelName: channelName,
-      CategoryName: categoryName,
-      MentionRoles: link.mentionRoles.join(', '),
-      LastChecked: link.lastChecked ? link.lastChecked.toISOString() : 'Never'
+      RepoName: link.repoName.length > 30 ? link.repoName.substring(0, 27) + '...' : link.repoName,
+      ChannelName: channelName.length > 20 ? channelName.substring(0, 17) + '...' : channelName,
+      CategoryName: categoryName.length > 15 ? categoryName.substring(0, 12) + '...' : categoryName,
+      MentionRoles: roleNames.join(', ').length > 40 ? roleNames.join(', ').substring(0, 37) + '...' : roleNames.join(', '),
+      LastChecked: link.lastChecked ? link.lastChecked.toLocaleDateString() : 'Never'
     });
   }
 
