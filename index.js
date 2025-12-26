@@ -91,26 +91,6 @@ async function webhookHandler(req, res) {
           return res.status(200).json();
       }
       break;
-    case 'pull_request':
-      switch (payload.action) {
-        case 'opened':
-          await handlePullRequestOpened(payload, res);
-          break;
-        case 'closed':
-          if (payload.pull_request.merged) {
-            console.log(`PR #${payload.pull_request.number} merged in ${payload.repository.full_name}`);
-          } else {
-            console.log(`PR #${payload.pull_request.number} closed in ${payload.repository.full_name}`);
-          }
-          break;
-        case 'reopened':
-          console.log(`PR #${payload.pull_request.number} reopened in ${payload.repository.full_name}`);
-          break;
-        // Add more cases as needed
-        default:
-          return res.status(200).json();
-      }
-      break;
     default:
       return res.status(200).json();
   }
@@ -247,51 +227,6 @@ async function handleIssueOpened(payload) {
   }
 }
 
-async function handlePullRequestOpened(payload) {
-  const repoName = payload.repository.full_name;
-  const repoKey = String(repoName).toLowerCase();
-  const item = payload.pull_request;
-
-  // Prefer canonical match, fallback to legacy repoName match (case-insensitive) for existing DB entries.
-  let links = await RepoLink.find({ repoKey });
-  if (!links.length) {
-    links = await RepoLink.find({ repoName: new RegExp(`^${repoName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
-  }
-
-  if (!links.length) {
-    console.log(`❌ No link found for repo ${repoName} (key: ${repoKey})`);
-    return;
-  }
-
-  const embed = {
-    title: `Pull Request #${item.number}`,
-    url: item.html_url,
-    description: item.title,
-    fields: [
-      { name: 'State', value: item.state, inline: true },
-      { name: 'Created by', value: item.user.login, inline: true },
-    ],
-    timestamp: item.created_at,
-  };
-
-  for (const link of links) {
-    console.log(`✅ Found link for repo ${repoName}, posting to channel ${link.channelId} (guild ${link.guildId})`);
-    const guild = client.guilds.cache.get(link.guildId);
-    if (!guild) {
-      console.log('❌ Guild not found');
-      continue;
-    }
-    const channel = guild.channels.cache.get(link.channelId);
-    if (!channel) {
-      console.log('❌ Channel not found');
-      continue;
-    }
-    await channel.send({ embeds: [embed] });
-    console.log(`📤 Posted embed for PR ${item.number} in ${channel.name}`);
-  }
-}
-
-// Create a new client instance
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
 // creating a cooldown collection
