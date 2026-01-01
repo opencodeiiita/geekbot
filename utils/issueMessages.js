@@ -278,6 +278,20 @@ const issueMessages = {
         "Headliner – The opening acts are done 🎪. The crowd is chanting. You're holding the microphone. Don't choke.",
         "Powder Keg – The fuse is lit 💥. The room is full of explosives. You can either defuse it or enjoy the fireworks."
     ]
+      ,
+
+      bounty: [
+        "💰 Bounty posted – claim it if you dare.",
+        "Bounty alert: there’s coin on the line and bugs to slay 🗡️",
+        "New bounty dropped 💎 Fix it, ship it, get the glory.",
+        "Someone put money on this problem 💸 Time to earn it.",
+        "Prize pool activated 🎯 Clean fix only — no spaghetti.",
+        "This issue has a bounty 💰 and the repo wants it gone.",
+        "Bounty challenge accepted? 🏆 Bring receipts (tests).",
+        "Coins are jingling and CI is watching 👀",
+        "Bounty on the board 🚨 Make the diff small and the impact big.",
+        "Hot bounty: fix it fast, fix it right 🔧"
+      ]
 };
 
 // Function to get appropriate messages based on issue characteristics
@@ -301,4 +315,29 @@ function getIssueMessages(labels, pointsValue) {
   return messages;
 }
 
-module.exports = { getIssueMessages };
+// Function to get appropriate messages for bounty issues.
+// NOTE: Label casing can vary, so normalize labels before checking.
+function getBountyMessages(labels, pointsValue) {
+  const normalizedLabels = (labels || []).map(l => String(l).toLowerCase());
+
+  // Always include bounty-specific + general hype.
+  let messages = [...issueMessages.bounty, ...issueMessages.general];
+
+  // Mirror the normal categorization so bounty issues still feel relevant.
+  if (normalizedLabels.some(l => l.includes('good first issue'))) {
+    messages.push(...issueMessages.goodFirst);
+  }
+  if (normalizedLabels.some(l => l.includes('bug'))) {
+    messages.push(...issueMessages.bug);
+  }
+  if (normalizedLabels.some(l => l.includes('enhancement'))) {
+    messages.push(...issueMessages.enhancement);
+  }
+  if (pointsValue >= 20) {
+    messages.push(...issueMessages.highPoints);
+  }
+
+  return messages;
+}
+
+module.exports = { getIssueMessages, getBountyMessages };

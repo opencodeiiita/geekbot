@@ -9,7 +9,7 @@ const { DISCORD_TOKEN, MONGODB_URI, WEBHOOK_SECRET } = process.env;
 
 console.log('WEBHOOK_SECRET loaded:', !!WEBHOOK_SECRET, WEBHOOK_SECRET ? 'Present' : 'Missing');
 const RepoLink = require('./models/repoLink');
-const { getIssueMessages } = require('./utils/issueMessages');
+const { getIssueMessages, getBountyMessages } = require('./utils/issueMessages');
 
 // Connect to MongoDB
 mongoose.connect(MONGODB_URI)
@@ -79,6 +79,9 @@ async function webhookHandler(req, res) {
       switch (payload.action) {
         case 'opened':
           await handleIssueOpened(payload, res);
+          break;
+        case 'labeled':
+          await handleIssueLabeled(payload, res);
           break;
         case 'closed':
           console.log(`Issue #${payload.issue.number} closed in ${payload.repository.full_name}`);
@@ -224,6 +227,136 @@ async function handleIssueOpened(payload) {
     // Send the embed
     await channel.send({ embeds: [embed] });
     console.log(`📤 Posted issue ${item.number} in ${channel.name}`);
+  }
+}
+
+async function handleIssueLabeled(payload) {
+  const label = payload.label?.name ? String(payload.label.name).toLowerCase() : '';
+  if (label !== 'bounty') {
+    return;
+  }
+
+  const repoName = payload.repository.full_name;
+  const repoKey = String(repoName).toLowerCase();
+  const item = payload.issue;
+
+  // Prefer canonical match, fallback to legacy repoName match (case-insensitive) for existing DB entries.
+  let links = await RepoLink.find({ repoKey });
+  if (!links.length) {
+    links = await RepoLink.find({ repoName: new RegExp(`^${repoName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+  }
+
+  if (!links.length) {
+    console.log(`❌ No link found for repo ${repoName} (key: ${repoKey})`);
+    return;
+  }
+
+  // Extract labels
+  const labels = item.labels.map(l => l.name);
+  const labelsText = labels.length > 0 ? labels.join(', ') : 'None';
+
+  // Extract points from labels (e.g., "points: 10")
+  let points = 'Not specified';
+  let pointsValue = 0;
+  for (const label of labels) {
+    const match = label.match(/points:\s*(\d+)/i);
+    if (match) {
+      points = match[1];
+      pointsValue = parseInt(match[1], 10);
+      break;
+    }
+  }
+
+  // Determine type based on labels
+  let type = 'FCFS (First come first serve)';
+  if (labels.some(l => l.toLowerCase().includes('ofa') || l.toLowerCase().includes('open-for-all'))) {
+    type = 'Open for all';
+  } else if (labels.some(l => l.toLowerCase().includes('compe') || l.toLowerCase().includes('competitive'))) {
+    type = 'Competitive';
+  }
+
+  // Determine embed color based on points (higher points = more important color)
+  // Default green
+  let color = 0x00ff00;
+  // Red for very high points
+  if (pointsValue >= 31) {
+    color = 0xff0000;
+  // Orange for high points
+  } else if (pointsValue >= 21) {
+    color = 0xffa500;
+  // Yellow for medium points
+  } else if (pointsValue >= 11) {
+    color = 0xffff00;
+  }
+
+  // Truncate description to max 5 lines
+  let description = item.body || 'No description provided.';
+  const lines = description.split('\n');
+  if (lines.length > 5) {
+    description = lines.slice(0, 5).join('\n') + '\n...';
+  }
+
+  const embed = {
+    author: {
+      name: item.user.login,
+      icon_url: item.user.avatar_url,
+      url: item.user.html_url,
+    },
+    title: `Bounty Issue #${item.number}`,
+    url: item.html_url,
+    description: `**${item.title}**\n\n${description}`,
+    color: color,
+    fields: [
+      { name: 'Repository', value: `[${payload.repository.full_name}](${payload.repository.html_url})`, inline: true },
+      { name: 'Labels', value: labelsText || 'None', inline: true },
+      { name: 'Points', value: points, inline: true },
+      { name: 'Type', value: type, inline: true },
+      { name: 'State', value: item.state, inline: true },
+    ],
+    image: {
+      url: `https://opengraph.githubassets.com/1/${payload.repository.full_name}/issues/${item.number}`,
+    },
+    footer: {
+      text: 'Bounty Added',
+    },
+    timestamp: new Date().toISOString(),
+  };
+
+  for (const link of links) {
+    console.log(`✅ Found link for repo ${repoName}, posting bounty to channel ${link.channelId} (guild ${link.guildId})`);
+    const guild = client.guilds.cache.get(link.guildId);
+    if (!guild) {
+      console.log('❌ Guild not found');
+      continue;
+    }
+    const channel = guild.channels.cache.get(link.channelId);
+    if (!channel) {
+      console.log('❌ Channel not found');
+      continue;
+    }
+
+    // Pick a random bounty announcement message
+    const availableMessages = getBountyMessages(labels, pointsValue);
+    const randomMsg = availableMessages[Math.floor(Math.random() * availableMessages.length)];
+
+    // Create role mentions
+    let roleMentions = '';
+    if (link.mentionRoles && link.mentionRoles.length > 0) {
+      roleMentions = link.mentionRoles
+        .filter(roleId => {
+          const role = guild.roles.cache.get(roleId);
+          return role && !['Mentor', 'Contributor'].includes(role.name);
+        })
+        .map(roleId => `<@&${roleId}>`)
+        .join(' ') + ' ';
+    }
+
+    // Send greeting and announcement in one message
+    await channel.send(`💰 Bounty Alert! ${roleMentions}\n\n${randomMsg}`);
+
+    // Send the embed
+    await channel.send({ embeds: [embed] });
+    console.log(`📤 Posted bounty for issue ${item.number} in ${channel.name}`);
   }
 }
 
