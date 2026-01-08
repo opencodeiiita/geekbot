@@ -225,14 +225,11 @@ async function handleIssueOpened(payload) {
     // Send greeting and announcement (only if ENABLE_ISSUE_MESSAGES is true)
     if (ENABLE_ISSUE_MESSAGES === 'true') {
       await channel.send(`👋 Hello Contributors! ${roleMentions}\n\n${randomMsg}`);
-    } else if (roleMentions) {
-      // Still mention roles if configured, but without the random message
-      await channel.send(`👋 Hello Contributors! ${roleMentions}`);
-    }
 
-    // Send the embed
-    await channel.send({ embeds: [embed] });
-    console.log(`📤 Posted issue ${item.number} in ${channel.name}`);
+      // Send the embed
+      await channel.send({ embeds: [embed] });
+      console.log(`📤 Posted issue ${item.number} in ${channel.name}`);
+    }
   }
 }
 
@@ -360,14 +357,11 @@ async function handleIssueLabeled(payload) {
     // Send greeting and announcement (only if ENABLE_ISSUE_MESSAGES is true)
     if (ENABLE_ISSUE_MESSAGES === 'true') {
       await channel.send(`💰 Bounty Alert! ${roleMentions}\n\n${randomMsg}`);
-    } else if (roleMentions) {
-      // Still mention roles if configured, but without the random message
-      await channel.send(`💰 Bounty Alert! ${roleMentions}`);
-    }
 
-    // Send the embed
-    await channel.send({ embeds: [embed] });
-    console.log(`📤 Posted bounty for issue ${item.number} in ${channel.name}`);
+      // Send the embed
+      await channel.send({ embeds: [embed] });
+      console.log(`📤 Posted bounty for issue ${item.number} in ${channel.name}`);
+    }
   }
 }
 
