@@ -5,9 +5,10 @@ const mongoose = require('mongoose');
 const express = require('express');
 const crypto = require('crypto');
 const { Client, Collection, GatewayIntentBits } = require('discord.js');
-const { DISCORD_TOKEN, MONGODB_URI, WEBHOOK_SECRET } = process.env;
+const { DISCORD_TOKEN, MONGODB_URI, WEBHOOK_SECRET, ENABLE_ISSUE_MESSAGES = 'true' } = process.env;
 
 console.log('WEBHOOK_SECRET loaded:', !!WEBHOOK_SECRET, WEBHOOK_SECRET ? 'Present' : 'Missing');
+console.log('ENABLE_ISSUE_MESSAGES:', ENABLE_ISSUE_MESSAGES);
 const RepoLink = require('./models/repoLink');
 const { getIssueMessages, getBountyMessages } = require('./utils/issueMessages');
 
@@ -221,8 +222,13 @@ async function handleIssueOpened(payload) {
         .join(' ') + ' ';
     }
 
-    // Send greeting and announcement in one message
-    await channel.send(`👋 Hello Contributors! ${roleMentions}\n\n${randomMsg}`);
+    // Send greeting and announcement (only if ENABLE_ISSUE_MESSAGES is true)
+    if (ENABLE_ISSUE_MESSAGES === 'true') {
+      await channel.send(`👋 Hello Contributors! ${roleMentions}\n\n${randomMsg}`);
+    } else if (roleMentions) {
+      // Still mention roles if configured, but without the random message
+      await channel.send(`👋 Hello Contributors! ${roleMentions}`);
+    }
 
     // Send the embed
     await channel.send({ embeds: [embed] });
@@ -351,8 +357,13 @@ async function handleIssueLabeled(payload) {
         .join(' ') + ' ';
     }
 
-    // Send greeting and announcement in one message
-    await channel.send(`💰 Bounty Alert! ${roleMentions}\n\n${randomMsg}`);
+    // Send greeting and announcement (only if ENABLE_ISSUE_MESSAGES is true)
+    if (ENABLE_ISSUE_MESSAGES === 'true') {
+      await channel.send(`💰 Bounty Alert! ${roleMentions}\n\n${randomMsg}`);
+    } else if (roleMentions) {
+      // Still mention roles if configured, but without the random message
+      await channel.send(`💰 Bounty Alert! ${roleMentions}`);
+    }
 
     // Send the embed
     await channel.send({ embeds: [embed] });
