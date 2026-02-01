@@ -15,6 +15,9 @@ for (const folder of commandFolders) {
   const commandFiles = fs.readdirSync(commandsPath).filter((file) => file.endsWith('.js'));
   // Grab the SlashCommandBuilder#toJSON() output of each command's data for deployment
   for (const file of commandFiles) {
+    // Skip test welcome command
+    if (file === 'testWelcome.js') continue;
+
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
     if ('data' in command && 'execute' in command) {
@@ -34,7 +37,7 @@ const rest = new REST().setToken(DISCORD_TOKEN);
     console.log(`Started refreshing ${commands.length} application (/) commands.`);
 
     // The put method is used to fully refresh all commands in the guild with the current set
-    const data = await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+    const data = await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
 
     console.log(`Successfully reloaded ${data.length} application (/) commands.`);
   } catch (error) {
