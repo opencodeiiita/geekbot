@@ -1,7 +1,7 @@
 const { Events, MessageFlags, Collection } = require('discord.js');
 const RegistrationContext = require('../models/registrationContext');
-const { ADMIN_ROLE_NAMES } = require('../utils/constants');
-const { checkCooldown, hasAdminPermissions, validateRegistrationContext } = require('../utils/interactionUtils');
+
+const ADMIN_ROLE_NAMES = new Set(['mentor', 'admin', 'server manager']);
 
 module.exports = {
   name: Events.InteractionCreate,
@@ -27,14 +27,14 @@ module.exports = {
     }
 
     if (!interaction.isChatInputCommand()) return;
-
     const command = interaction.client.commands.get(interaction.commandName);
+
     if (!command) {
       console.error(`No command matching ${interaction.commandName} was found.`);
       return;
     }
 
-    // Check admin permissions for admin-only commands
+    // Role-gate admin commands
     if (command.adminOnly) {
       if (!interaction.inGuild()) {
         return interaction.reply({
@@ -43,7 +43,11 @@ module.exports = {
         });
       }
 
-      if (!hasAdminPermissions(interaction)) {
+      const member = interaction.member;
+      const hasAllowedRole =
+        member?.roles?.cache?.some((role) => ADMIN_ROLE_NAMES.has(role.name.toLowerCase())) ?? false;
+
+      if (!hasAllowedRole) {
         return interaction.reply({
           content: 'You need the Mentor, Admin, or Server manager role to use this command.',
           flags: MessageFlags.Ephemeral,
@@ -51,29 +55,48 @@ module.exports = {
       }
     }
 
-    // Check cooldowns
-    const cooldownInfo = checkCooldown(interaction, command);
-    if (cooldownInfo) {
-      return interaction.reply({
-        content: `Please wait, you are on a cooldown for \`${cooldownInfo.commandName}\`. You can use it again <t:${cooldownInfo.expiredTimestamp}:R>.`,
-        flags: MessageFlags.Ephemeral,
-      });
+    // checking for cooldowns
+    const { cooldowns } = interaction.client;
+
+    if (!cooldowns.has(command.data.name)) {
+      cooldowns.set(command.data.name, new Collection());
     }
 
-    // Execute command with error handling
+    const now = Date.now();
+    const timestamps = cooldowns.get(command.data.name);
+    const defaultCooldownDuration = 10;
+    const cooldownAmount = (command.cooldown ?? defaultCooldownDuration) * 1_000;
+    if (timestamps.has(interaction.user.id)) {
+      const expirationTime = timestamps.get(interaction.user.id) + cooldownAmount;
+
+      if (now < expirationTime) {
+        const expiredTimestamp = Math.round(expirationTime / 1_000);
+        return interaction.reply({
+          content: `Please wait, you are on a cooldown for \`${command.data.name}\`. You can use it again <t:${expiredTimestamp}:R>.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+    }
+
+    timestamps.set(interaction.user.id, now);
+    setTimeout(() => timestamps.delete(interaction.user.id), cooldownAmount);
+
+    // main command event
+
     try {
       await command.execute(interaction);
     } catch (error) {
-      console.error('Command execution error:', error);
-      const replyOptions = {
-        content: 'There was an error while executing this command!',
-        flags: MessageFlags.Ephemeral,
-      };
-
+      console.error(error);
       if (interaction.replied || interaction.deferred) {
-        await interaction.followUp(replyOptions);
+        await interaction.followUp({
+          content: 'There was an error while executing this command!',
+          flags: MessageFlags.Ephemeral,
+        });
       } else {
-        await interaction.reply(replyOptions);
+        await interaction.reply({
+          content: 'There was an error while executing this command!',
+          flags: MessageFlags.Ephemeral,
+        });
       }
     }
   },
@@ -172,17 +195,31 @@ async function handleRegisterChannelSelect(interaction) {
   const timestamp = contextKeyMatch[2];
   const contextKey = `register_${userId}_${timestamp}`;
 
-  // Validate context using utility function
-  const context = await validateRegistrationContext(contextKey);
-  if (!context) {
+  // Get stored context from DB
+  const contextDoc = await RegistrationContext.findOne({ key: contextKey });
+  if (!contextDoc) {
+    console.log('Context not found in DB for key:', contextKey);
     return await interaction.reply({
       content: '❌ Registration context expired. Please try the !register command again.',
       ephemeral: true
     });
   }
 
-  // Clean up context immediately after validation
-  await RegistrationContext.deleteOne({ key: contextKey });
+  // Check if context is expired (5 minutes)
+  if (Date.now() - contextDoc.timestamp > 5 * 60 * 1000) {
+    console.log('Context expired for key:', contextKey, 'age:', Date.now() - contextDoc.timestamp);
+    await RegistrationContext.deleteOne({ key: contextKey });
+    return await interaction.reply({
+      content: '❌ Registration context expired. Please try the !register command again.',
+      ephemeral: true
+    });
+  }
+
+  console.log('Retrieved context from DB for key:', contextKey);
+
+  const context = contextDoc.toObject();
+
+  await RegistrationContext.deleteOne({ key: contextKey }); // Clean up
 
   // Check permissions
   if (!channel.permissionsFor(interaction.guild.members.me).has('SendMessages')) {
@@ -261,14 +298,34 @@ async function handleRegisterPageButton(interaction) {
   const timestamp = match[3];
   const contextKey = `register_${userId}_${timestamp}`;
 
-  // Validate context using utility function
-  const context = await validateRegistrationContext(contextKey);
-  if (!context) {
+  // Get stored context from DB
+  const contextDoc = await RegistrationContext.findOne({ key: contextKey });
+  if (!contextDoc) {
+    console.log('Page button: Context not found in DB for key:', contextKey);
+    try {
+      return await interaction.reply({
+        content: '❌ Registration context expired. Please try the !register command again.',
+        ephemeral: true
+      });
+    } catch (error) {
+      console.log('Failed to reply to expired interaction:', error.message);
+      return;
+    }
+  }
+
+  // Check if context is expired (5 minutes)
+  if (Date.now() - contextDoc.timestamp > 5 * 60 * 1000) {
+    console.log('Page button: Context expired for key:', contextKey, 'age:', Date.now() - contextDoc.timestamp);
+    await RegistrationContext.deleteOne({ key: contextKey });
     return await interaction.reply({
       content: '❌ Registration context expired. Please try the !register command again.',
       ephemeral: true
     });
   }
+
+  console.log('Page button: Retrieved context from DB for key:', contextKey);
+
+  const context = contextDoc.toObject();
 
   // Update page
   const perPage = 25;
@@ -294,12 +351,16 @@ async function handleRegisterPageButton(interaction) {
 
   // Rebuild options
   const pageChannels = context.matchingChannels.slice(newPage * perPage, (newPage + 1) * perPage);
-  const options = pageChannels.map(ch => {
-    const category = ch.parent ? ` in ${ch.parent.name}` : '';
+  const newTimestamp = Date.now();
+  const options = pageChannels.map((ch, index) => {
+    // Get the actual channel from guild cache to check if it still exists
+    const actualChannel = interaction.guild.channels.cache.get(ch.id);
+    const category = ch.parentName ? ` in ${ch.parentName}` : (actualChannel?.parent ? ` in ${actualChannel.parent.name}` : '');
+    const channelName = ch.name || `Channel ${ch.id || 'unknown'}`;
     return new StringSelectMenuOptionBuilder()
-      .setLabel(ch.name)
+      .setLabel(channelName)
       .setDescription(`Channel${category}`)
-      .setValue(`register_channel_${ch.id}_${Date.now()}`); // New timestamp to make unique
+      .setValue(`register_channel_${ch.id}_${newTimestamp}_${index}_${Math.random().toString(36).substr(2, 9)}`); // Add random string for uniqueness
   });
 
   const selectMenu = new StringSelectMenuBuilder()

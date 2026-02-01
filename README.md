@@ -281,18 +281,15 @@ POST /back/api/v1/discord-bot  # Alternative routing
 ```
 geekbot/
 ├── index.js              # Main bot file
-├── commands/             # Discord slash commands
+├── commands/
+│   └── utility/          # Bot commands
 ├── events/               # Discord event handlers
 ├── models/               # MongoDB schemas
-├── utils/                # Utility functions and helpers
-├── config/               # Configuration files
-│   ├── .env.example      # Environment variables template
-│   └── eslint.config.js  # ESLint configuration
-├── scripts/              # Utility scripts and tools
-├── docs/                 # Documentation files
-│   ├── README.md         # This file
-│   └── DISCORD_USAGE.md  # Usage documentation
-└── data/                 # Data files and exports
+├── utils/
+│   └── issueMessages.js  # Message pools
+├── package.json
+├── .env                  # Environment variables
+└── README.md
 ```
 
 ### Running in Development
@@ -300,30 +297,21 @@ geekbot/
 # Install dependencies
 npm install
 
-# Start the bot
-npm start
-
-# Start with auto-reload (Node.js 18.11+)
+# Start with auto-reload (if using nodemon)
 npm run dev
 
-# Deploy slash commands
-npm run deploy-commands
-
-# Export repository links
-npm run export-links
-
-# Convert CSV to PDF
-npm run convert-csv-pdf
+# Or start normally
+node index.js
 ```
 
 ### Code Style
 The project uses ESLint for code quality:
 ```bash
 # Run linting
-npm run lint
+npx eslint index.js
 
 # Fix auto-fixable issues
-npm run lint:fix
+npx eslint index.js --fix
 ```
 
 ### Adding New Features

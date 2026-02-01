@@ -1,7 +1,5 @@
 node_modules
 .env
 config.json
-data/
-*.log
-.DS_Store
-Thumbs.db
+repo_links_export.csv
+repo_links_export.html
