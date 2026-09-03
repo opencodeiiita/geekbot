@@ -8,7 +8,7 @@ const { DISCORD_TOKEN, MONGODB_URI,PORT } = process.env;
 const webhookHandler = require('./handlers/webhookHandler');
 
 //mongoose connection
-mongoose.connect(MONGODB_URI | 2)
+mongoose.connect(MONGODB_URI)
 .then(() => console.log('Connected to MongoDB'))
 .catch(err => console.error('MongoDB connection error:', err));
 
